@@ -1,5 +1,6 @@
 # ShadySnake
-<br>
+# test
+---
 This is a little game inspired by classic Nokia "Snake"; written in python with compushady in order to study shaders and gpu programming
 ---
 # Rules

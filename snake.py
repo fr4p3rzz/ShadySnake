@@ -130,7 +130,7 @@ while not glfw.window_should_close(window):
         food_counter += 1
 
         # We want to create tails only until our buffer limit is reached
-        if snake_tails <= 5:
+        if snake_tails < sn_tuning.snake_max_length:
             snake_tail = functions.generate_tail(content_to_render, snake_tails)
             content_to_render.append(snake_tail)
             snake_tails += 1

@@ -120,7 +120,7 @@ while not glfw.window_should_close(window):
                 content_to_render[i][1] = content_to_render[i-1][1]
 
         snake[axis] += direction * sn_tuning.snake_speed
-        timer = 1000
+        timer = sn_tuning.timer
 
     clear_screen.dispatch(target.width // 8, target.height // 8, 1)
 

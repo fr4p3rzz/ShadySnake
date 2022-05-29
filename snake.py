@@ -1,4 +1,3 @@
-
 from compushady import Buffer, HEAP_DEFAULT, HEAP_READBACK, HEAP_UPLOAD, Compute, config
 import glfw
 import compushady.formats
@@ -8,31 +7,27 @@ import platform
 import random
 import functions, sn_tuning
 
+# Init
 compushady.config.set_debug(True)
-
 print('Using device', compushady.get_current_device().name)
 
-target = compushady.Texture2D(sn_tuning.window_width, sn_tuning.window_height, compushady.formats.B8G8R8A8_UNORM) # our game world
+# Our game world
+target = compushady.Texture2D(sn_tuning.window_width, sn_tuning.window_height, compushady.formats.B8G8R8A8_UNORM)
 
-# we need space for 4 quads (uint4 * 3)
-snake = [random.randint(sn_tuning.snake_offset, 
-        target.width - sn_tuning.snake_offset), 
-        random.randint(sn_tuning.snake_offset, 
-        target.height - sn_tuning.snake_offset), 
-        sn_tuning.snake_size_x, 
-        sn_tuning.snake_size_y, 1, 1, 1, 1]
-snake_speed = sn_tuning.snake_starting_speed # Snake speed
-food = [random.randint(sn_tuning.food_offset, 
-        target.width - sn_tuning.food_offset), 
-        random.randint(sn_tuning.food_offset, 
-        target.height - sn_tuning.food_offset), 
-        sn_tuning.food_size_x, 
-        sn_tuning.food_size_y, 0, 1, 0, 1] 
+# Creating necessary items
+food = functions.generate_food(target)
+snake = functions.generate_head(target)
+content_to_render = [food, snake]
+
+# Necessary variables
+snake_tails = 0
 food_counter = 0
-
+direction = -1
+axis = 1
+timer = sn_tuning.timer
 
 # Support to d3d11
-quads_staging_buffer = compushady.Buffer(8 * 4 * 3, compushady.HEAP_UPLOAD)
+quads_staging_buffer = compushady.Buffer(16 * 4 * 4, compushady.HEAP_UPLOAD)
 quads_buffer = compushady.Buffer(
     quads_staging_buffer.size, format=compushady.formats.R32G32B32A32_SINT)
 
@@ -45,7 +40,7 @@ struct data
 };
 StructuredBuffer<data> quads : register(t0);
 RWTexture2D<float4> target : register(u0);
-[numthreads(8, 8, 3)]
+[numthreads(8, 8, 8)]
 void main(int3 tid : SV_DispatchThreadID)
 {
     data quad = quads[tid.z];
@@ -63,7 +58,7 @@ void main(int3 tid : SV_DispatchThreadID)
 
 compute = compushady.Compute(shader, srv=[quads_buffer], uav=[target])
 
-# a super simple clear screen procedure
+# A super simple clear screen procedure
 clear_screen = compushady.Compute(hlsl.compile("""
 RWTexture2D<float4> target : register(u0);
 
@@ -74,12 +69,16 @@ void main(int3 tid : SV_DispatchThreadID)
 }
 """), uav=[target])
 
+# Initialising our window system
 glfw.init()
+
 # we do not want implicit OpenGL!
 glfw.window_hint(glfw.CLIENT_API, glfw.NO_API)
 
+# Creating window
 window = glfw.create_window(target.width, target.height, 'Snake', None, None)
 
+# Selecting GPUs API based on current system
 if platform.system() == 'Windows':
     swapchain = compushady.Swapchain(glfw.get_win32_window(
         window), compushady.formats.B8G8R8A8_UNORM, 2)
@@ -93,11 +92,9 @@ else:
         window)), compushady.formats.B8G8R8A8_UNORM, 2)
 
 
-direction = -1
-axis = 1
+# Game Loop
 while not glfw.window_should_close(window):
     glfw.poll_events()
-    effect_variation = random.randrange(0, 2)
     if glfw.get_key(window, glfw.KEY_A) | glfw.get_key(window, glfw.KEY_LEFT):
         axis = 0
         direction = -1
@@ -114,32 +111,43 @@ while not glfw.window_should_close(window):
         swapchain = None  
         glfw.terminate()
 
-    snake[axis] += direction * snake_speed
+    # Moving each body part of the snake 
+    timer -= sn_tuning.timer_offset * sn_tuning.snake_speed
+    if timer <= 0:
+        if len(content_to_render) > 2:
+            for i in range(len(content_to_render)-1, 1, -1):
+                content_to_render[i][0] = content_to_render[i-1][0]
+                content_to_render[i][1] = content_to_render[i-1][1]
+
+        snake[axis] += direction * sn_tuning.snake_speed
+        timer = 1000
+
     clear_screen.dispatch(target.width // 8, target.height // 8, 1)
 
     # Eat the food
-    if functions.is_ate(snake, food):
+    if functions.collide(snake, food):
+        functions.update_food(food, target)
         food_counter += 1
-        snake_speed += sn_tuning.snake_increment_speed
-        food[0] = random.randint(20, target.width - 20)
-        food[1] = random.randint(20, target.height - 20)
-        functions.food_new_color(food)
-   
-    # Pacman-effect on window limits
-    if snake[0] < 0:
-        snake[0] = target.width 
-    if snake[0] > target.width:
-        snake[0] = 0
-    if snake[1] < 0:
-        snake[1] = target.height 
-    if snake[1] > target.height:
-        snake[1] = 0
 
-    quads_staging_buffer.upload(struct.pack('16i', *snake, *food))
+        # We want to create tails only until our buffer limit is reached
+        if snake_tails <= 5:
+            snake_tail = functions.generate_tail(content_to_render, snake_tails)
+            content_to_render.append(snake_tail)
+            snake_tails += 1
+
+        # We increase the speed only until the maximum possible is reached
+        if sn_tuning.timer_offset < sn_tuning.snake_speed:
+            sn_tuning.timer_offset += 1
+
+    # Pacman-effect on window limits
+    functions.check_borders(snake, target)
+
+    # Render the scene
+    quads_staging_buffer.upload(functions.pack_content(content_to_render))
     quads_staging_buffer.copy_to(quads_buffer)
     compute.dispatch(target.width // 8, target.height // 8, 1)
     swapchain.present(target)
 
+# Close the application
 swapchain = None  # this ensures the swapchain is destroyed before the window
 glfw.terminate()
-

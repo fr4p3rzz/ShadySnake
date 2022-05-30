@@ -4,7 +4,7 @@ This is a little game inspired by classic Nokia "Snake", written in python with 
 ---
 # Rules
 1) Everytime you reach the food, the snake gets faster and longer
-2) Maximum length for the snakes is 7 squares
+2) Maximum length for the snake is 7 squares
 2) Food color is random
 ---
 # Screenshots
